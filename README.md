@@ -16,7 +16,7 @@ Se analizan métricas clave como:
 
 ---
 
-## ⚙️ Tecnologías utilizadas
+## Tecnologías utilizadas
 - MATLAB
 - Phased Array System Toolbox
 - Comunicación digital (AWGN, BER)
@@ -47,7 +47,7 @@ Se analizan métricas clave como:
 
 ---
 
-##  Resultados principales
+## Resultados principales
 - Massive MIMO mejora significativamente la cobertura.
 - El SNR aumenta con el número de antenas.
 - El BER disminuye al incrementar el beamforming.
@@ -55,10 +55,14 @@ Se analizan métricas clave como:
 
 ---
 
-##  Conclusión
+## Conclusión
 Massive MIMO con beamforming es una tecnología clave en 5G debido a su capacidad de mejorar la eficiencia espectral, cobertura y calidad del enlace en comparación con antenas convencionales.
 
 ---
 
-## 👨‍💻 Autor
-Proyecto académico – Sistemas de comunicaciones 5G
+## Autor
+Proyecto académico – Redes de nueva generacion 
+Erick Gomez 
+Brenda Llano 
+Sebastian Caisatoa 
+Joel Zeas 
