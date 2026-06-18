@@ -1,0 +1,377 @@
+function interfaz_antena_simple_5G
+
+clc;
+close all;
+
+%% =========================================================
+%% VENTANA PRINCIPAL
+%% =========================================================
+
+app = uifigure( ...
+    'Name','Antena Simple 5G - Ganancia, Cobertura, SNR y BER', ...
+    'Position',[50 50 1400 820]);
+
+%% =========================================================
+%% PANEL IZQUIERDO
+%% =========================================================
+
+panel = uipanel(app,...
+    'Title','Parámetros de simulación',...
+    'Position',[20 40 260 720]);
+
+uilabel(panel,...
+    'Text','Frecuencia (GHz):',...
+    'Position',[20 650 130 22]);
+
+fcBox = uieditfield(panel,'numeric',...
+    'Value',28,...
+    'Position',[160 650 70 22]);
+
+uilabel(panel,...
+    'Text','Potencia Tx (dBm):',...
+    'Position',[20 610 130 22]);
+
+ptBox = uieditfield(panel,'numeric',...
+    'Value',30,...
+    'Position',[160 610 70 22]);
+
+uilabel(panel,...
+    'Text','Distancia usuario (m):',...
+    'Position',[20 570 130 22]);
+
+distUsuarioBox = uieditfield(panel,'numeric',...
+    'Value',100,...
+    'Position',[160 570 70 22]);
+
+uilabel(panel,...
+    'Text','Distancia máx (m):',...
+    'Position',[20 530 130 22]);
+
+distMaxBox = uieditfield(panel,'numeric',...
+    'Value',500,...
+    'Position',[160 530 70 22]);
+
+uilabel(panel,...
+    'Text','Umbral Rx (dBm):',...
+    'Position',[20 490 130 22]);
+
+umbralBox = uieditfield(panel,'numeric',...
+    'Value',-90,...
+    'Position',[160 490 70 22]);
+
+uilabel(panel,...
+    'Text','Ruido (dBm):',...
+    'Position',[20 450 130 22]);
+
+ruidoBox = uieditfield(panel,'numeric',...
+    'Value',-100,...
+    'Position',[160 450 70 22]);
+
+uilabel(panel,...
+    'Text','Bits BER:',...
+    'Position',[20 410 130 22]);
+
+bitsBox = uieditfield(panel,'numeric',...
+    'Value',100000,...
+    'Position',[160 410 70 22]);
+
+%% =========================================================
+%% BOTONES
+%% =========================================================
+
+uibutton(panel,...
+    'Text','Simular antena simple',...
+    'Position',[35 330 180 40],...
+    'ButtonPushedFcn',@simular);
+
+uibutton(panel,...
+    'Text','Limpiar',...
+    'Position',[35 270 180 40],...
+    'ButtonPushedFcn',@limpiar);
+
+%% =========================================================
+%% GRAFICAS (BAJADAS)
+%% =========================================================
+
+ax1 = uiaxes(app,...
+    'Position',[280 390 430 220]);
+
+title(ax1,'Potencia recibida y cobertura');
+
+grid(ax1,'on');
+
+ax2 = uiaxes(app,...
+    'Position',[740 390 430 220]);
+
+title(ax2,'BER vs SNR');
+
+grid(ax2,'on');
+
+%% =========================================================
+%% DATOS ABAJO (MOVIDOS A LA DERECHA)
+%% =========================================================
+
+txt = uitextarea(app,...
+    'Position',[340 95 430 250],...
+    'Editable','off');
+
+%% TABLA BER
+tablaBER = uitable(app,...
+    'Position',[810 95 330 250]);
+
+tablaBER.ColumnName = {'SNR (dB)','BER'};
+
+tablaBER.ColumnWidth = {120 180};
+
+tablaBER.RowStriping = 'off';
+
+tablaBER.Data = {};
+
+%% =========================================================
+%% FUNCION SIMULAR
+%% =========================================================
+
+    function simular(~,~)
+
+        %% PARAMETROS
+        fc = fcBox.Value * 1e9;
+
+        c = physconst('LightSpeed');
+
+        lambda = c/fc;
+
+        Pt_dBm = ptBox.Value;
+
+        distUsuario = distUsuarioBox.Value;
+
+        distMax = distMaxBox.Value;
+
+        umbralRx = umbralBox.Value;
+
+        ruido_dBm = ruidoBox.Value;
+
+        numBits = bitsBox.Value;
+
+        distancias = 10:10:distMax;
+
+        %% ANTENA SIMPLE
+        antena = phased.IsotropicAntennaElement;
+
+        Gt_dBi = 0;
+
+        Gr_dBi = 0;
+
+        %% =================================================
+        %% PATRON POLAR
+        %% =================================================
+
+        figure('Name','Patrón polar antena simple');
+
+        pattern(antena, fc, -180:180, 0,...
+            'PropagationSpeed', c,...
+            'CoordinateSystem', 'polar',...
+            'Type', 'directivity');
+
+        title('Patrón de radiación polar - Antena simple 5G');
+
+        %% =================================================
+        %% COBERTURA
+        %% =================================================
+
+        FSPL_dB = 20*log10(distancias) + ...
+                  20*log10(fc) + ...
+                  20*log10(4*pi/c);
+
+        Pr_dBm = Pt_dBm + Gt_dBi + Gr_dBi - FSPL_dB;
+
+        cla(ax1);
+
+        plot(ax1,...
+            distancias,...
+            Pr_dBm,...
+            'LineWidth',2.2);
+
+        hold(ax1,'on');
+
+        yline(ax1,...
+            umbralRx,...
+            '--',...
+            'Umbral Rx');
+
+        grid(ax1,'on');
+
+        xlabel(ax1,'Distancia (m)');
+
+        ylabel(ax1,'Potencia recibida (dBm)');
+
+        title(ax1,'Potencia recibida y cobertura');
+
+        xlim(ax1,[0 distMax]);
+
+        ylim(ax1,[-95 -50]);
+
+        %% COBERTURA MAXIMA
+        idx = find(Pr_dBm >= umbralRx);
+
+        if isempty(idx)
+
+            coberturaMax = 0;
+
+        else
+
+            coberturaMax = distancias(idx(end));
+
+        end
+
+        %% =================================================
+        %% POTENCIA Y SNR DEL USUARIO
+        %% =================================================
+
+        FSPL_usuario = ...
+            20*log10(distUsuario) + ...
+            20*log10(fc) + ...
+            20*log10(4*pi/c);
+
+        Pr_usuario_dBm = ...
+            Pt_dBm + ...
+            Gt_dBi + ...
+            Gr_dBi - ...
+            FSPL_usuario;
+
+        SNR_usuario_dB = ...
+            Pr_usuario_dBm - ruido_dBm;
+
+        %% =================================================
+        %% BER
+        %% =================================================
+
+        SNR_dB = 0:2:14;
+
+        bits = randi([0 1], numBits, 1);
+
+        senalTx = 2*bits - 1;
+
+        BER = zeros(size(SNR_dB));
+
+        for i = 1:length(SNR_dB)
+
+            senalRx = awgn( ...
+                senalTx,...
+                SNR_dB(i),...
+                'measured');
+
+            bitsRx = senalRx > 0;
+
+            BER(i) = ...
+                sum(bits ~= bitsRx)/numBits;
+
+        end
+
+        %% GRAFICA BER
+        cla(ax2);
+
+        semilogy(ax2,...
+            SNR_dB,...
+            BER,...
+            'o-',...
+            'LineWidth',2.2,...
+            'MarkerSize',8);
+
+        grid(ax2,'on');
+
+        xlabel(ax2,'SNR (dB)');
+
+        ylabel(ax2,'BER');
+
+        title(ax2,'BER vs SNR');
+
+        xlim(ax2,[0 14]);
+
+        ylim(ax2,[1e-5 1]);
+
+        %% =================================================
+        %% TABLA BER
+        %% =================================================
+
+        tablaBER.Data = table( ...
+            SNR_dB(:), ...
+            BER(:), ...
+            'VariableNames',{'SNR_dB','BER'});
+
+        %% =================================================
+        %% TEXTO RESULTADOS
+        %% =================================================
+
+        txt.Value = {
+
+            '========== ANTENA SIMPLE =========='
+
+            ['Frecuencia: ', ...
+            num2str(fc/1e9,'%.2f'), ...
+            ' GHz']
+
+            ['Potencia transmitida: ', ...
+            num2str(Pt_dBm,'%.2f'), ...
+            ' dBm']
+
+            ['Ganancia antena simple: ', ...
+            num2str(Gt_dBi,'%.2f'), ...
+            ' dBi']
+
+            ['Potencia recibida usuario: ', ...
+            num2str(Pr_usuario_dBm,'%.4f'), ...
+            ' dBm']
+
+            ['Ruido: ', ...
+            num2str(ruido_dBm,'%.2f'), ...
+            ' dBm']
+
+            ['SNR usuario: ', ...
+            num2str(SNR_usuario_dB,'%.4f'), ...
+            ' dB']
+
+            ['Cobertura aproximada: ', ...
+            num2str(coberturaMax), ...
+            ' metros']
+
+            ' '
+
+            '========== INTERPRETACIÓN =========='
+
+            'La antena simple tiene ganancia ideal de 0 dBi.'
+
+            'No concentra energía hacia una dirección específica.'
+
+            'La potencia recibida disminuye con la distancia.'
+
+            'El BER disminuye cuando aumenta el SNR.'
+
+        };
+
+    end
+
+%% =========================================================
+%% FUNCION LIMPIAR
+%% =========================================================
+
+    function limpiar(~,~)
+
+        cla(ax1);
+
+        cla(ax2);
+
+        title(ax1,'Potencia recibida y cobertura');
+
+        title(ax2,'BER vs SNR');
+
+        grid(ax1,'on');
+
+        grid(ax2,'on');
+
+        txt.Value = {''};
+
+        tablaBER.Data = {};
+
+    end
+
+end
