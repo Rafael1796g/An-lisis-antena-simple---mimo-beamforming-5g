@@ -1,0 +1,519 @@
+%% =========================================================
+%  Simulación de arreglos de antenas Massive MIMO
+%  con beamforming adaptativo. Permite variar el número de 
+%  antenas (8, 16, 32) y la potencia de transmisión para 
+%  observar su efecto en: ganancia, patrones de radiación,
+%  BER, cobertura y parámetros críticos para 5G/6G.
+%
+%  Ejecutar sección por sección (Ctrl+Enter) o completo (F5)
+%  Para cambiar parámetros, modificar la sección PARÁMETROS
+%% =========================================================
+
+clc; clear; close all;
+
+fprintf('========================================================\n');
+fprintf('  Universidad de las Fuerzas Armadas ESPE\n');
+fprintf('  Análisis Comparativo 5G/6G\n');
+fprintf('  GRUPO 1 - MASSIVE MIMO BEAMFORMING - Análisis 5G/6G\n');
+fprintf('  NGN - Ingeniería en Telecomunicaciones\n');
+fprintf('========================================================\n\n');
+
+%% =========================================================
+%  PARÁMETROS GLOBALES MODIFICABLES POR EL USUARIO
+%% =========================================================
+
+% --- Frecuencia de operación ---
+fc = 28e9;              % Hz | Banda mmWave 5G (28 GHz)
+                        % Cambiar a 140e9 para sub-THz (6G)
+
+% --- Potencias de transmisión a evaluar (dBm) ---
+P_dBm_list = [10, 20, 30];   % Modificar para ver efecto en cobertura
+
+% --- Ángulo de apuntamiento del haz (steering angle) ---
+theta_target_deg = 30;  % grados | 0° = frente, ±90° = laterales
+
+% --- SNR para curvas BER ---
+SNR_dB = -5:1:25;       % rango de SNR en dB
+
+% --- Número de antenas a comparar ---
+N_ant_list = [8, 16, 32];
+
+% --- Modulación para BER ---
+mod_order = 4;          % QPSK=4, 16QAM=16, 64QAM=64
+num_bits  = 1e5;        % bits por simulación (mayor = más preciso, más lento)
+
+% --- Colores para gráficas ---
+colors = {'#E63946', '#2A9D8F', '#E9C46A'};  % rojo, verde, amarillo
+
+%% =========================================================
+%  CÁLCULOS PREVIOS
+%% =========================================================
+
+lambda = physconst('LightSpeed') / fc;   % longitud de onda
+d      = lambda / 2;                     % separación entre antenas (lambda/2)
+theta_target = deg2rad(theta_target_deg);
+
+fprintf('Frecuencia de operación : %.1f GHz\n', fc/1e9);
+fprintf('Longitud de onda (λ)    : %.2f mm\n', lambda*1000);
+fprintf('Separación antenas (d)  : %.2f mm = λ/2\n', d*1000);
+fprintf('Ángulo de apuntamiento  : %d°\n', theta_target_deg);
+fprintf('Modulación              : %d-QAM\n', mod_order);
+fprintf('\n');
+
+%% =========================================================
+%  FIGURA 1: PATRONES DE RADIACIÓN (CARTESIANO)
+%% =========================================================
+
+figure('Name','Patrones de Radiación - Beamforming','NumberTitle','off',...
+       'Color','w','Position',[50 50 1200 500]);
+
+theta_scan = linspace(-90, 90, 1801);   % barrido angular en grados
+theta_rad  = deg2rad(theta_scan);
+
+subplot(1,2,1);
+hold on; grid on;
+legend_entries = {};
+
+for k = 1:length(N_ant_list)
+    N = N_ant_list(k);
+    
+    % Vector de pesos de beamforming (steering vector)
+    w = exp(-1j * 2*pi * d/lambda * (0:N-1)' * sin(theta_target)) / N;
+    
+    % Patrón de array (Array Factor)
+    AF = zeros(1, length(theta_scan));
+    for t = 1:length(theta_scan)
+        a = exp(1j * 2*pi * d/lambda * (0:N-1)' * sin(theta_rad(t)));
+        AF(t) = abs(w' * a);
+    end
+    
+    AF_dB = 20*log10(AF / max(AF) + 1e-10);
+    
+    plot(theta_scan, AF_dB, 'Color', colors{k}, 'LineWidth', 2);
+    legend_entries{end+1} = sprintf('N = %d antenas', N);
+end
+
+xline(theta_target_deg, '--k', 'LineWidth', 1.5, 'Label', ...
+    sprintf('θ = %d°', theta_target_deg), 'LabelVerticalAlignment','bottom');
+ylim([-40 5]);
+xlabel('Ángulo θ (grados)', 'FontSize', 12);
+ylabel('Ganancia Normalizada (dB)', 'FontSize', 12);
+title('Patrón de Radiación - Beamforming Lineal', 'FontSize', 13, 'FontWeight','bold');
+legend(legend_entries, 'Location','northwest', 'FontSize', 10);
+set(gca, 'FontSize', 11);
+
+% Polar plot
+subplot(1,2,2);
+hold on;
+
+for k = 1:length(N_ant_list)
+    N = N_ant_list(k);
+    w = exp(-1j * 2*pi * d/lambda * (0:N-1)' * sin(theta_target)) / N;
+    
+    AF = zeros(1, length(theta_scan));
+    for t = 1:length(theta_scan)
+        a = exp(1j * 2*pi * d/lambda * (0:N-1)' * sin(theta_rad(t)));
+        AF(t) = abs(w' * a);
+    end
+    AF = AF / max(AF);
+    
+    % Coordenadas polares → cartesianas para plot
+    x_pol = AF .* cosd(theta_scan);
+    y_pol = AF .* sind(theta_scan);
+    plot(x_pol, y_pol, 'Color', colors{k}, 'LineWidth', 2);
+end
+
+axis equal; grid on; xlim([-1.2 1.2]); ylim([-1.2 1.2]);
+xlabel(''); ylabel('');
+title('Diagrama Polar de Radiación (Normalizado)', 'FontSize', 13, 'FontWeight','bold');
+legend(legend_entries, 'Location','southwest', 'FontSize', 10);
+set(gca, 'FontSize', 11);
+
+fprintf('[✓] Figura 1: Patrones de radiación generados\n');
+
+%% =========================================================
+%  FIGURA 2: GANANCIA VS NÚMERO DE ANTENAS
+%% =========================================================
+
+figure('Name','Ganancia vs Número de Antenas','NumberTitle','off',...
+       'Color','w','Position',[100 100 900 450]);
+
+N_range = 2:2:64;
+gain_dBi = zeros(1, length(N_range));
+
+for k = 1:length(N_range)
+    N = N_range(k);
+    % Ganancia de array ≈ N (lineal) → 10*log10(N) dBi
+    gain_dBi(k) = 10*log10(N);
+end
+
+subplot(1,2,1);
+plot(N_range, gain_dBi, '-o', 'Color','#264653', 'LineWidth', 2, ...
+    'MarkerFaceColor','#E9C46A', 'MarkerSize', 6);
+hold on;
+
+% Marcar los 3 casos de interés
+for k = 1:length(N_ant_list)
+    N  = N_ant_list(k);
+    Gk = 10*log10(N);
+    plot(N, Gk, 's', 'Color', colors{k}, 'MarkerSize', 12, ...
+        'MarkerFaceColor', colors{k});
+    text(N+0.5, Gk+0.3, sprintf('%d ant → %.1f dBi', N, Gk), ...
+        'FontSize', 9, 'Color', colors{k}, 'FontWeight','bold');
+end
+
+grid on;
+xlabel('Número de Antenas (N)', 'FontSize', 12);
+ylabel('Ganancia Máxima (dBi)', 'FontSize', 12);
+title('Ganancia de Array vs N antenas', 'FontSize', 13, 'FontWeight','bold');
+set(gca, 'FontSize', 11);
+
+% Ancho de haz -3dB vs N
+subplot(1,2,2);
+BW_3dB = zeros(1, length(N_ant_list));
+for k = 1:length(N_ant_list)
+    N = N_ant_list(k);
+    % HPBW aproximado = 0.886 * lambda / (N*d) en radianes
+    BW_3dB(k) = rad2deg(0.886 / N);   % d = lambda/2 → simplifica
+end
+
+bar(N_ant_list, BW_3dB, 0.5, 'FaceColor','flat', ...
+    'CData', [0.902 0.220 0.271; 0.165 0.616 0.561; 0.914 0.769 0.404]);
+hold on;
+for k = 1:length(N_ant_list)
+    text(N_ant_list(k), BW_3dB(k)+0.2, sprintf('%.1f°', BW_3dB(k)), ...
+        'HorizontalAlignment','center', 'FontSize', 11, 'FontWeight','bold');
+end
+grid on; ylabel('Ancho de Haz HPBW (grados)', 'FontSize', 12);
+xlabel('Número de Antenas', 'FontSize', 12);
+title('Ancho de Haz -3dB vs N antenas', 'FontSize', 13, 'FontWeight','bold');
+xticks(N_ant_list); set(gca, 'FontSize', 11);
+
+fprintf('[✓] Figura 2: Ganancia y ancho de haz generados\n');
+
+%% =========================================================
+%  FIGURA 3: BER vs SNR (QPSK/QAM con Beamforming)
+%% =========================================================
+
+figure('Name','BER vs SNR - Massive MIMO Beamforming','NumberTitle','off',...
+       'Color','w','Position',[150 150 900 500]);
+
+SNR_lin = 10.^(SNR_dB/10);
+hold on; grid on;
+
+legend_ber = {};
+
+for k = 1:length(N_ant_list)
+    N  = N_ant_list(k);
+    G_array = N;   % ganancia lineal del array
+
+    % SNR efectivo con ganancia del beamforming
+    SNR_eff = SNR_lin * G_array;
+
+    % BER teórica para QPSK en canal AWGN
+    % BER_QPSK = erfc(sqrt(SNR_eff/2)) / 2  [equivalente a BPSK por canal]
+    BER_qpsk = 0.5 * erfc(sqrt(SNR_eff / 2));
+
+    semilogy(SNR_dB, BER_qpsk, 'Color', colors{k}, 'LineWidth', 2.5);
+    legend_ber{end+1} = sprintf('N = %d antenas (G = %.0f dBi)', N, 10*log10(N));
+end
+
+% Referencia: sin beamforming (N=1)
+BER_ref = 0.5 * erfc(sqrt(SNR_lin / 2));
+semilogy(SNR_dB, BER_ref, '--k', 'LineWidth', 1.5);
+legend_ber{end+1} = 'Referencia (sin BF, N=1)';
+
+% Línea límite BER 10^-5 (requisito URLLC 5G)
+yline(1e-5, '-.b', 'LineWidth', 1.5, 'Label', 'Límite URLLC (10^{-5})', ...
+    'LabelVerticalAlignment','bottom', 'FontSize', 9);
+
+ylim([1e-7 1]); xlim([min(SNR_dB) max(SNR_dB)]);
+xlabel('SNR (dB)', 'FontSize', 12);
+ylabel('Tasa de Error de Bit (BER)', 'FontSize', 12);
+title('BER vs SNR — Massive MIMO Beamforming (QPSK, AWGN)', ...
+    'FontSize', 13, 'FontWeight','bold');
+legend(legend_ber, 'Location','southwest', 'FontSize', 10);
+set(gca, 'FontSize', 11);
+
+% Anotar punto de quiebre SNR para BER=1e-5
+fprintf('\n--- Tabla: SNR requerido para BER = 1e-5 (QPSK) ---\n');
+fprintf('%-15s | %-20s | %-15s\n', 'N antenas', 'Ganancia Array (dBi)', 'SNR req. (dB)');
+fprintf('%s\n', repmat('-',55,1));
+for k = 1:length(N_ant_list)
+    N  = N_ant_list(k);
+    G  = 10*log10(N);
+    % SNR_eff para BER=1e-5: erfc(sqrt(SNR/2)) = 2e-5 → SNR ≈ 2*(erfcinv(2e-5))^2
+    SNR_req_lin = 2 * (erfcinv(2e-5))^2;
+    SNR_req_dB  = 10*log10(SNR_req_lin / N);   % descontando ganancia
+    fprintf('%-15d | %-20.2f | %-15.2f\n', N, G, SNR_req_dB);
+end
+fprintf('\n');
+
+fprintf('[✓] Figura 3: BER vs SNR generada\n');
+
+%% =========================================================
+%  FIGURA 4: COBERTURA vs POTENCIA DE TRANSMISIÓN
+%% =========================================================
+
+figure('Name','Cobertura vs Potencia','NumberTitle','off',...
+       'Color','w','Position',[200 200 1000 450]);
+
+% Modelo de pérdida de trayecto: 3GPP TR 38.901 UMa LoS (mmWave)
+% PL(d) [dB] = 32.4 + 20*log10(fc/1e9) + 20*log10(d_km*1000)
+% Cobertura: distancia máxima donde SNR > umbral
+
+SNR_umbral_dB = 10;   % dB — umbral mínimo para demodulación
+SNR_umbral    = 10^(SNR_umbral_dB/10);
+N_ruido_dB    = -95;  % dBm — piso de ruido típico (NF=7dB, BW=100MHz)
+N_ruido_mW    = 10^(N_ruido_dB/10);
+
+d_eval = logspace(1, 4, 500);   % distancias 10 m … 10 km
+
+subplot(1,2,1);
+hold on; grid on;
+
+legend_cov = {};
+
+for k = 1:length(N_ant_list)
+    N = N_ant_list(k);
+    G_dBi = 10*log10(N);
+    
+    cov_max = zeros(1, length(P_dBm_list));
+    
+    for p = 1:length(P_dBm_list)
+        Pt_dBm  = P_dBm_list(p);
+        Pt_mW   = 10^(Pt_dBm/10);
+        
+        % EIRP = Pt * G_array
+        EIRP_mW = Pt_mW * N;
+        
+        % Pérdida de trayecto 3GPP UMa LoS
+        PL_dB = 32.4 + 20*log10(fc/1e9) + 20*log10(d_eval);
+        PL    = 10.^(PL_dB/10);
+        
+        % Potencia recibida (mW)
+        Pr_mW = EIRP_mW ./ PL;
+        
+        % SNR recibido
+        SNR_rx = Pr_mW / N_ruido_mW;
+        
+        % Distancia máxima donde SNR >= umbral
+        idx = find(SNR_rx >= SNR_umbral, 1, 'last');
+        if ~isempty(idx)
+            cov_max(p) = d_eval(idx);
+        else
+            cov_max(p) = 0;
+        end
+    end
+    
+    plot(P_dBm_list, cov_max/1000, '-o', 'Color', colors{k}, ...
+        'LineWidth', 2, 'MarkerSize', 8, 'MarkerFaceColor', colors{k});
+    legend_cov{end+1} = sprintf('N = %d antenas', N);
+end
+
+xlabel('Potencia de Transmisión (dBm)', 'FontSize', 12);
+ylabel('Cobertura Máxima (km)', 'FontSize', 12);
+title(sprintf('Cobertura vs P_{tx} — fc = %.0f GHz\n(3GPP UMa LoS, SNR_{min} = %d dB)', ...
+    fc/1e9, SNR_umbral_dB), 'FontSize', 12, 'FontWeight','bold');
+legend(legend_cov, 'Location','northwest', 'FontSize', 10);
+xticks(P_dBm_list); set(gca, 'FontSize', 11);
+
+% SNR vs distancia para Pt fijo
+subplot(1,2,2);
+hold on; grid on;
+Pt_fixed = P_dBm_list(end);   % máxima potencia
+Pt_mW_f  = 10^(Pt_fixed/10);
+
+for k = 1:length(N_ant_list)
+    N = N_ant_list(k);
+    EIRP_mW = Pt_mW_f * N;
+    PL_dB   = 32.4 + 20*log10(fc/1e9) + 20*log10(d_eval);
+    PL      = 10.^(PL_dB/10);
+    Pr_mW   = EIRP_mW ./ PL;
+    SNR_rx  = 10*log10(Pr_mW / N_ruido_mW);
+    semilogx(d_eval, SNR_rx, 'Color', colors{k}, 'LineWidth', 2);
+end
+
+yline(SNR_umbral_dB, '--k', 'LineWidth', 1.5, ...
+    'Label', sprintf('SNR mín = %d dB', SNR_umbral_dB), ...
+    'LabelVerticalAlignment','bottom', 'FontSize', 9);
+
+xlabel('Distancia (m)', 'FontSize', 12);
+ylabel('SNR recibido (dB)', 'FontSize', 12);
+title(sprintf('SNR vs Distancia — P_{tx} = %d dBm, fc = %.0f GHz', ...
+    Pt_fixed, fc/1e9), 'FontSize', 12, 'FontWeight','bold');
+legend(legend_cov, 'Location','northeast', 'FontSize', 10);
+set(gca, 'FontSize', 11); xlim([min(d_eval) max(d_eval)]);
+
+fprintf('[✓] Figura 4: Cobertura vs Potencia generada\n');
+
+%% =========================================================
+%  FIGURA 5: DIRECTIVIDAD 3D - HEATMAP ANGULAR
+%% =========================================================
+
+figure('Name','Mapa de Calor - Ganancia Angular','NumberTitle','off',...
+       'Color','w','Position',[250 50 1100 420]);
+
+phi_scan   = linspace(-90, 90, 361);     % elevación
+theta_scan2 = linspace(-90, 90, 361);   % azimuth
+
+for k = 1:length(N_ant_list)
+    N = N_ant_list(k);
+    w = exp(-1j * 2*pi * d/lambda * (0:N-1)' * sin(theta_target)) / N;
+    
+    % Calcular AF en 2D (azimuth × elevación)
+    AF_2D = zeros(length(phi_scan), length(theta_scan2));
+    for ti = 1:length(theta_scan2)
+        a = exp(1j * 2*pi * d/lambda * (0:N-1)' * sind(theta_scan2(ti)));
+        for pi_ = 1:length(phi_scan)
+            % factor de elevación (simplified)
+            elev_factor = cosd(phi_scan(pi_));
+            AF_2D(pi_, ti) = abs(w' * a) * elev_factor;
+        end
+    end
+    AF_2D_dB = 20*log10(AF_2D / max(AF_2D(:)) + 1e-10);
+    
+    subplot(1,3,k);
+    imagesc(theta_scan2, phi_scan, AF_2D_dB);
+    caxis([-30 0]);
+    colormap(parula);
+    colorbar;
+    xlabel('Azimuth θ (°)', 'FontSize', 10);
+    ylabel('Elevación φ (°)', 'FontSize', 10);
+    title(sprintf('N = %d antenas\nGanancia 2D (dB)', N), ...
+        'FontSize', 11, 'FontWeight','bold');
+    hold on;
+    xline(theta_target_deg, 'w--', 'LineWidth', 1.5);
+    set(gca, 'FontSize', 10);
+end
+sgtitle('Mapa de Ganancia Angular 2D — Massive MIMO Beamforming', ...
+    'FontSize', 13, 'FontWeight','bold');
+
+fprintf('[✓] Figura 5: Mapa 2D de ganancia angular generado\n');
+
+%% =========================================================
+%  FIGURA 6: THROUGHPUT ESTIMADO vs SNR (Shannon)
+%% =========================================================
+
+figure('Name','Capacidad del Canal vs SNR','NumberTitle','off',...
+       'Color','w','Position',[300 300 850 450]);
+
+BW_Hz = 100e6;   % ancho de banda 100 MHz (5G NR típico)
+hold on; grid on;
+
+legend_cap = {};
+
+for k = 1:length(N_ant_list)
+    N = N_ant_list(k);
+    SNR_eff_lin = SNR_lin * N;   % ganancia del array
+    
+    % Capacidad Shannon: C = BW * log2(1 + SNR)
+    C_Gbps = BW_Hz * log2(1 + SNR_eff_lin) / 1e9;
+    
+    plot(SNR_dB, C_Gbps, 'Color', colors{k}, 'LineWidth', 2.5);
+    legend_cap{end+1} = sprintf('N = %d antenas', N);
+end
+
+% Línea referencia: límite 5G eMBB (1 Gbps)
+yline(1, '--b', 'LineWidth', 1.5, 'Label', 'Límite 5G eMBB (1 Gbps)', ...
+    'LabelVerticalAlignment','bottom', 'FontSize', 9);
+% Línea referencia: objetivo 5G pico (20 Gbps)
+yline(20, '-.r', 'LineWidth', 1.5, 'Label', '5G Pico (20 Gbps)', ...
+    'LabelVerticalAlignment','bottom', 'FontSize', 9);
+
+xlabel('SNR (dB)', 'FontSize', 12);
+ylabel('Capacidad del Canal (Gbps)', 'FontSize', 12);
+title(sprintf('Capacidad de Shannon — BW = %.0f MHz\n(Ganancia de Beamforming incluida)', ...
+    BW_Hz/1e6), 'FontSize', 12, 'FontWeight','bold');
+legend(legend_cap, 'Location','northwest', 'FontSize', 10);
+xlim([min(SNR_dB) max(SNR_dB)]); ylim([0 25]);
+set(gca, 'FontSize', 11);
+
+fprintf('[✓] Figura 6: Capacidad de canal generada\n');
+
+%% =========================================================
+%  FIGURA 7: RESUMEN COMPARATIVO - TABLA VISUAL
+%% =========================================================
+
+figure('Name','Resumen Comparativo','NumberTitle','off',...
+       'Color','w','Position',[350 100 900 500]);
+
+% Datos resumen
+N_vals     = N_ant_list;
+Gain_dBi   = 10*log10(N_vals);
+HPBW       = rad2deg(0.886 ./ N_vals);
+SNR_req    = zeros(1,3);
+for k = 1:3
+    SNR_req_lin_k = 2 * (erfcinv(2e-5))^2;
+    SNR_req(k) = 10*log10(SNR_req_lin_k / N_vals(k));
+end
+Cap_20dB   = BW_Hz * log2(1 + 10^2 .* N_vals) / 1e9;   % SNR=20dB
+
+subplot(2,2,1);
+bar(N_vals, Gain_dBi, 0.5, 'FaceColor','flat',...
+    'CData',[0.902 0.220 0.271; 0.165 0.616 0.561; 0.914 0.769 0.404]);
+for k=1:3, text(N_vals(k), Gain_dBi(k)+0.2, sprintf('%.1f dBi',Gain_dBi(k)),...
+    'HorizontalAlignment','center','FontWeight','bold','FontSize',10); end
+title('Ganancia Máxima (dBi)','FontSize',11,'FontWeight','bold');
+xlabel('N antenas'); ylabel('dBi'); xticks(N_vals); grid on; set(gca,'FontSize',10);
+
+subplot(2,2,2);
+bar(N_vals, HPBW, 0.5, 'FaceColor','flat',...
+    'CData',[0.902 0.220 0.271; 0.165 0.616 0.561; 0.914 0.769 0.404]);
+for k=1:3, text(N_vals(k), HPBW(k)+0.05, sprintf('%.2f°',HPBW(k)),...
+    'HorizontalAlignment','center','FontWeight','bold','FontSize',10); end
+title('Ancho de Haz HPBW (°)','FontSize',11,'FontWeight','bold');
+xlabel('N antenas'); ylabel('Grados'); xticks(N_vals); grid on; set(gca,'FontSize',10);
+
+subplot(2,2,3);
+bar(N_vals, SNR_req, 0.5, 'FaceColor','flat',...
+    'CData',[0.902 0.220 0.271; 0.165 0.616 0.561; 0.914 0.769 0.404]);
+for k=1:3, text(N_vals(k), SNR_req(k)+0.2, sprintf('%.1f dB',SNR_req(k)),...
+    'HorizontalAlignment','center','FontWeight','bold','FontSize',10); end
+title('SNR requerido (BER=10^{-5}, QPSK)','FontSize',11,'FontWeight','bold');
+xlabel('N antenas'); ylabel('dB'); xticks(N_vals); grid on; set(gca,'FontSize',10);
+
+subplot(2,2,4);
+bar(N_vals, Cap_20dB, 0.5, 'FaceColor','flat',...
+    'CData',[0.902 0.220 0.271; 0.165 0.616 0.561; 0.914 0.769 0.404]);
+for k=1:3, text(N_vals(k), Cap_20dB(k)+0.05, sprintf('%.1f Gbps',Cap_20dB(k)),...
+    'HorizontalAlignment','center','FontWeight','bold','FontSize',10); end
+title('Capacidad a SNR=20 dB (Gbps)','FontSize',11,'FontWeight','bold');
+xlabel('N antenas'); ylabel('Gbps'); xticks(N_vals); grid on; set(gca,'FontSize',10);
+
+sgtitle('Resumen Comparativo — Massive MIMO Beamforming', ...
+    'FontSize', 13, 'FontWeight','bold');
+
+fprintf('[✓] Figura 7: Resumen comparativo generado\n');
+
+%% =========================================================
+%  TABLA FINAL EN CONSOLA
+%% =========================================================
+
+fprintf('\n========================================================\n');
+fprintf('  TABLA RESUMEN FINAL — Massive MIMO Beamforming\n');
+fprintf('  Frecuencia: %.0f GHz | BW: %.0f MHz\n', fc/1e9, BW_Hz/1e6);
+fprintf('========================================================\n');
+fprintf('%-12s | %-12s | %-12s | %-16s | %-12s\n', ...
+    'N antenas', 'Ganancia', 'HPBW (°)', 'SNR req BER=1e-5', 'Cap @20dB');
+fprintf('%s\n', repmat('-', 72, 1));
+for k = 1:3
+    fprintf('%-12d | %-12.1f | %-12.2f | %-16.1f | %-12.1f\n', ...
+        N_vals(k), Gain_dBi(k), HPBW(k), SNR_req(k), Cap_20dB(k));
+end
+fprintf('%s\n', repmat('-', 72, 1));
+fprintf('Unidades: Ganancia [dBi], HPBW [°], SNR req [dB], Cap [Gbps]\n\n');
+
+fprintf('========================================================\n');
+fprintf('  INTERPRETACIÓN (contexto 5G/6G del artículo)\n');
+fprintf('========================================================\n');
+fprintf('  8  ant: Ganancia %.1f dBi → útil para AR colaborativa (5G SA)\n', Gain_dBi(1));
+fprintf('  16 ant: Ganancia %.1f dBi → viable para CAV y automatización\n', Gain_dBi(2));
+fprintf('  32 ant: Ganancia %.1f dBi → necesario para telecirugía y holografía\n', Gain_dBi(3));
+fprintf('  Sub-THz 6G (140 GHz): requeriría 256–1024 antenas para\n');
+fprintf('  mantener cobertura equivalente en bandas mmWave\n');
+fprintf('========================================================\n\n');
+
+fprintf('  ✓ Simulación completada. Se generaron 7 figuras.\n');
+fprintf('  ✓ Para cambiar parámetros, editar sección PARÁMETROS GLOBALES.\n');
+fprintf('========================================================\n');
